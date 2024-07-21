@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import getFileContents from '@/api/server/files/getFileContents';
 import { httpErrorToHuman } from '@/api/http';
 import SpinnerOverlay from '@/components/elements/SpinnerOverlay';
@@ -10,7 +10,6 @@ import Can from '@/components/elements/Can';
 import FlashMessageRender from '@/components/FlashMessageRender';
 import PageContentBlock from '@/components/elements/PageContentBlock';
 import { ServerError } from '@/components/elements/ScreenBlock';
-import tw from 'twin.macro';
 import Button from '@/components/elements/Button';
 import Select from '@/components/elements/Select';
 import modes from '@/modes';
@@ -19,9 +18,13 @@ import { ServerContext } from '@/state/server';
 import ErrorBoundary from '@/components/elements/ErrorBoundary';
 import { encodePathSegments, hashToPath } from '@/helpers';
 import { dirname } from 'path';
-import CodemirrorEditor from '@/components/elements/CodemirrorEditor';
+import { Editor, Monaco } from '@monaco-editor/react';
+import { editor } from 'monaco-editor';
+import tw from 'twin.macro'; // Asegúrate de importar twin.macro
 
 export default () => {
+    const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+    const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
     const [error, setError] = useState('');
     const { action } = useParams<{ action: 'new' | string }>();
     const [loading, setLoading] = useState(action === 'edit');
@@ -36,8 +39,6 @@ export default () => {
     const uuid = ServerContext.useStoreState((state) => state.server.data!.uuid);
     const setDirectory = ServerContext.useStoreActions((actions) => actions.files.setDirectory);
     const { addError, clearFlashes } = useFlash();
-
-    let fetchFileContent: null | (() => Promise<string>) = null;
 
     useEffect(() => {
         if (action === 'new') return;
@@ -55,15 +56,38 @@ export default () => {
             .then(() => setLoading(false));
     }, [action, uuid, hash]);
 
+    useEffect(() => {
+        if (!monacoRef.current || !editorRef.current || !mode) return;
+        monacoRef.current.editor.setModelLanguage(editorRef.current.getModel()!, mode);
+    }, [monacoRef, editorRef, mode]);
+
+    useEffect(() => {
+        if (!editorRef.current) return;
+        editorRef.current.setValue(content);
+    }, [editorRef, content]);
+
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.ctrlKey && event.key === 's') {
+                event.preventDefault();
+                save();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [content]);
+
     const save = (name?: string) => {
-        if (!fetchFileContent) {
+        if (!editorRef.current) {
             return;
         }
 
         setLoading(true);
         clearFlashes('files:view');
-        fetchFileContent()
-            .then((content) => saveFileContents(uuid, name || hashToPath(hash), content))
+        saveFileContents(uuid, name || hashToPath(hash), editorRef.current.getValue())
             .then(() => {
                 if (name) {
                     history.push(`/server/${id}/files/edit#/${encodePathSegments(name)}`);
@@ -87,9 +111,7 @@ export default () => {
         <PageContentBlock>
             <FlashMessageRender byKey={'files:view'} css={tw`mb-4`} />
             <ErrorBoundary>
-                <div css={tw`mb-4`}>
-                    <FileManagerBreadcrumbs withinFileEditor isNewFile={action !== 'edit'} />
-                </div>
+                <FileManagerBreadcrumbs withinFileEditor isNewFile={action !== 'edit'} />
             </ErrorBoundary>
             {hash.replace(/^#/, '').endsWith('.pteroignore') && (
                 <div css={tw`mb-4 p-4 border-l-4 bg-neutral-900 rounded border-cyan-400`}>
@@ -112,20 +134,138 @@ export default () => {
             />
             <div css={tw`relative`}>
                 <SpinnerOverlay visible={loading} />
-                <CodemirrorEditor
-                    mode={mode}
-                    filename={hash.replace(/^#/, '')}
-                    onModeChanged={setMode}
-                    initialContent={content}
-                    fetchContent={(value) => {
-                        fetchFileContent = value;
+                <Editor
+                    defaultValue={content}
+                    path={hashToPath(hash)}
+                    height='75vh'
+                    theme='vs-dark'
+                    options={{
+                        acceptSuggestionOnCommitCharacter: true,
+                        acceptSuggestionOnEnter: 'on',
+                        suggest: { filterGraceful: true, snippetsPreventQuickSuggestions: false },
+                        suggestOnTriggerCharacters: true,
+                        quickSuggestions: true,
+                        quickSuggestionsDelay: 100,
+                        wordBasedSuggestions: "allDocuments",
+                        wordBasedSuggestionsOnlySameLanguage: false,
+                        suggestSelection: "recentlyUsedByPrefix",
+                        autoIndent: 'full',
+                        fontFamily: '"Fira Code", monospace',
+                        fontSize: 14,
+                        lineHeight: 20,
+                        fontLigatures: true,
+                        scrollBeyondLastLine: true,
+                        smoothScrolling: true,
+                        cursorSmoothCaretAnimation: 'on',
+                        minimap: { enabled: true, side: "right", showSlider: "mouseover" },
+                        renderWhitespace: 'all',
+                        padding: { top: 10, bottom: 10 },
+                        autoClosingBrackets: "languageDefined",
+                        autoClosingQuotes: "languageDefined",
+                        autoSurround: "languageDefined",
+                        formatOnType: true,
+                        formatOnPaste: true,
+                        bracketPairColorization: { enabled: true, independentColorPoolPerBracketType: true },
+                        codeLens: true,
+                        colorDecorators: true,
+                        cursorBlinking: "smooth",
+                        cursorStyle: "line",
+                        cursorWidth: 2,
+                        folding: true,
+                        foldingHighlight: true,
+                        links: true,
+                        renderControlCharacters: true,
+                        tabCompletion: "on",
+                        useTabStops: true,
+                        wordWrap: "bounded",
+                        wrappingIndent: "same",
+                        occurrencesHighlight: "multiFile",
+                        inlineSuggest: {
+                            enabled: true
+                        },
+                        peekWidgetDefaultFocus: "editor",
+                        guides: {
+                            indentation: true
+                        },
                     }}
-                    onContentSaved={() => {
-                        if (action !== 'edit') {
-                            setModalVisible(true);
-                        } else {
-                            save();
-                        }
+                    onMount={(editor, monaco) => {
+                        editorRef.current = editor;
+                        monacoRef.current = monaco;
+                        const path = hashToPath(hash);
+                        const ext = path.split('.').pop() || '';
+                        const newMode = monaco.languages.getLanguages().find(lang => 
+                            lang.extensions?.includes(`.${ext}`) || lang.filenames?.includes(path)
+                        )?.id || 'plaintext';
+                        const mimeType = modes.find(m => m.mime.split('/')[1] === newMode)?.mime || 'text/plain';
+                        setMode(mimeType);
+                        monaco.editor.setModelLanguage(editor.getModel()!, newMode);
+
+                        // Custom theme
+                        monaco.editor.defineTheme('pterodactylTheme', {
+                            base: 'vs-dark',
+                            inherit: true,
+                            rules: [
+                                { token: 'comment', foreground: '6A9955' },
+                                { token: 'keyword', foreground: '569CD6' },
+                                { token: 'string', foreground: 'CE9178' },
+                            ],
+                            colors: {
+                                'editor.background': '#251f30',
+                                'editor.foreground': '#e9eaee',
+                                'editorCursor.foreground': '#7a98ff',
+                                'editor.lineHighlightBackground': '#2b2f3e',
+                                'editor.selectionBackground': '#4f6295',
+                                'editorLineNumber.foreground': '#858585',
+                                'editor.inactiveSelectionBackground': '#3a435c'
+                            }
+                        });
+                        monaco.editor.setTheme('pterodactylTheme');
+                        // Add custom command to change language
+                        editor.addAction({
+                            id: 'change-language',
+                            label: 'Change Language Mode',
+                            keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyL],
+                            precondition: undefined,
+                            keybindingContext: undefined,
+                            contextMenuGroupId: 'navigation',
+                            contextMenuOrder: 1.5,
+                            run: function(ed) {
+                                const languages = monaco.languages.getLanguages();
+                                const availableLanguages = languages.map(lang => ({
+                                    id: lang.id,
+                                    label: lang.aliases ? lang.aliases[0] : lang.id,
+                                    run: () => {
+                                        monaco.editor.setModelLanguage(ed.getModel()!, lang.id);
+                                    }
+                                }));
+
+                                // Create and show a simple selection dialog
+                                const languageList = document.createElement('div');
+                                languageList.style.position = 'absolute';
+                                languageList.style.top = '50%';
+                                languageList.style.left = '50%';
+                                languageList.style.transform = 'translate(-50%, -50%)';
+                                languageList.style.backgroundColor = '#1e1e1e';
+                                languageList.style.padding = '10px';
+                                languageList.style.borderRadius = '5px';
+                                languageList.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.5)';
+                                languageList.style.zIndex = '1000';
+
+                                availableLanguages.forEach(language => {
+                                    const languageItem = document.createElement('div');
+                                    languageItem.textContent = language.label;
+                                    languageItem.style.padding = '5px';
+                                    languageItem.style.cursor = 'pointer';
+                                    languageItem.addEventListener('click', () => {
+                                        language.run();
+                                        document.body.removeChild(languageList);
+                                    });
+                                    languageList.appendChild(languageItem);
+                                });
+
+                                document.body.appendChild(languageList);
+                            }
+                        });
                     }}
                 />
             </div>
