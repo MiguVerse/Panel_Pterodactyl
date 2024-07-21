@@ -4,7 +4,7 @@ import styled from 'styled-components/macro';
 import { breakpoint } from '@/theme';
 import FlashMessageRender from '@/components/FlashMessageRender';
 import tw from 'twin.macro';
-import {login_footer} from "../../../../public/hedystia/footer";
+import {login_footer} from "../../../../public/miguverse/footer";
 
 type Props = React.DetailedHTMLProps<React.FormHTMLAttributes<HTMLFormElement>, HTMLFormElement> & {
     title?: string;
