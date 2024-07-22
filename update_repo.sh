@@ -7,12 +7,18 @@ read -p "Enter your choice (1 or 2): " choice
 
 case $choice in
     1)
-        echo "Updating from release branch..."
-        git pull origin release
+        echo "Fetching updates from release branch..."
+        git fetch origin
+        echo "Resetting to release branch..."
+        git reset --hard origin/release
+        chmod +x update_repo.sh
         ;;
     2)
-        echo "Updating from 1.0-develop branch..."
-        git pull origin 1.0-develop
+        echo "Fetching updates from 1.0-develop branch..."
+        git fetch origin
+        echo "Resetting to 1.0-develop branch..."
+        git reset --hard origin/1.0-develop
+        chmod +x update_repo.sh
         ;;
     *)
         echo "Invalid choice. Please run the script again and select either 1 or 2."
